@@ -74,51 +74,6 @@ class SessionMaster:
            "Remember: There is no going back in time."
     GUI_REFRESH_RATE = 10  # in milliseconds
 
-    class Session:
-
-        STOPPED = 0
-        RUNNING = 1
-        PAUSED = 2
-
-        def __init__(self, sess_num, cat="default"):
-            self.id = sess_num  # TODO remove this and let SessionMaster assign numbers to sessions?
-            #  If SessionMaster saves a list of sessions, this is data duplication.
-            self.category = cat
-            self.status = SessionMaster.Session.STOPPED
-            self.start_ticks = None
-            self.total_ticks = 0
-
-        def start(self):
-            self.status = SessionMaster.Session.RUNNING
-            self.start_ticks = time.time()
-
-        def pause(self):
-            self.status = SessionMaster.Session.PAUSED
-            self.total_ticks += int(time.time() - self.start_ticks)
-
-        def stop(self):
-            if self.get_status() == SessionMaster.Session.RUNNING:
-                self.total_ticks += int(time.time() - self.start_ticks)
-            self.status = SessionMaster.Session.STOPPED
-
-        def get_status(self):
-            return self.status
-
-        def get_total(self):
-            if self.status == SessionMaster.Session.RUNNING:
-                return self.total_ticks + (time.time() - self.start_ticks)
-            return self.total_ticks
-
-        def get_start_time(self):
-            return self.start_ticks
-
-        def get_id(self):
-            return self.id
-
-        def __repr__(self):
-            return "Session #{0}: Cat: {1}, Start: {2}, Total: {3}"\
-                .format(self.id, self.category, format_time(self.start_ticks), format_time(self.get_total()))
-
     def __init__(self):
         self.history = []
         self.last_reset = 0
@@ -148,10 +103,26 @@ class SessionMaster:
         size = str(self.root_tk.winfo_width()+37+(len(SessionMaster.PROG_TITLE)*7))+"x"+str(self.root_tk.winfo_height())
         self.root_tk.geometry(size)
         self.root_tk.attributes('-topmost', True)
+        try:
+            with open(dirpath + "geo.pickle", 'rb') as geometry_handle:
+                self.root_tk.geometry(pickle.load(geometry_handle))
+        except IOError:
+            pass
         #self.root_tk.minsize(width=self.root_tk.winfo_width(), height=self.root_tk.winfo_height())
         # deddA
         self.refresh()
-        self.root_tk.mainloop()
+        #self.root_tk.mainloop()
+
+    '''on window close event: saving session and window geometry and closing TM'''
+    def client_exit(self):
+        # no session running
+        if not self.curr_sess or not self.curr_sess.get_status():
+            self.save_geometry()
+        else:  # session running, saving time and geometry
+            self.stop_running_session()
+        self.root_tk.destroy()
+        return True
+
 
     '''Loads progress from file: Loads full session history of the user, as well as the last reset time.'''
     def load(self):
@@ -167,6 +138,18 @@ class SessionMaster:
         except IOError:
             pass  # This happens when no reset command was loaded. Legal and requires no action or feedback
 
+
+    '''Saving window position and size'''
+    def save_geometry(self):
+        try:
+            with open(dirpath + 'geo.pickle', 'wb') as geometry_handle:
+                pickle.dump(self.root_tk.geometry(), geometry_handle, protocol=pickle.HIGHEST_PROTOCOL)
+        except IOError:
+            # print("Error while saving geometry")
+            pass
+        return True
+
+
     '''Saves the session history and the last reset time to external files'''
     def save(self):
         try:
@@ -174,10 +157,14 @@ class SessionMaster:
                 pickle.dump(self.history, history_handle, protocol=pickle.HIGHEST_PROTOCOL)
             with open(dirpath + 'reset.pickle', 'wb') as reset_handle:
                 pickle.dump(self.last_reset, reset_handle, protocol=pickle.HIGHEST_PROTOCOL)
-            # print("Progress Saved")
+
         except IOError:
             # print("Error while saving progress")
             pass
+        self.save_geometry()
+        return True
+
+
 
     '''Start a session or resume a paused one'''
     def start(self):
@@ -207,17 +194,21 @@ class SessionMaster:
         # print("Session Paused")
         return True
 
-    '''Stop a currently running or paused session'''
-    def stop(self):
-        if not self.curr_sess or not self.curr_sess.get_status():
-            # print("There is no active session")
-            return False
+    '''Stop a currently running session'''
+    def stop_running_session(self):
         self.curr_sess.stop()
         self.history.append(self.curr_sess)
         self.save()
         # print("Session {0} Stopped".format(self.curr_sess.get_id()))
         # print(self)  # Prints full history
         return True
+
+    '''Stop a currently running or paused session'''
+    def stop(self):
+        if not self.curr_sess or not self.curr_sess.get_status():
+            # print("There is no active session")
+            return False
+        return self.stop_running_session()
 
     '''Resets the total time timer.
     Preserves information regarding previous sessions.'''
@@ -268,5 +259,55 @@ class SessionMaster:
             repr_str += "\n"+sess.__repr__()
         return repr_str
 
+    '''Inner class of SessionMaster'''
+    class Session:
 
-session = SessionMaster()
+        STOPPED = 0
+        RUNNING = 1
+        PAUSED = 2
+
+        def __init__(self, sess_num, cat="default"):
+            self.id = sess_num  # TODO remove this and let SessionMaster assign numbers to sessions?
+            #  If SessionMaster saves a list of sessions, this is data duplication.
+            self.category = cat
+            self.status = SessionMaster.Session.STOPPED
+            self.start_ticks = None
+            self.total_ticks = 0
+
+        def start(self):
+            self.status = SessionMaster.Session.RUNNING
+            self.start_ticks = time.time()
+
+        def pause(self):
+            self.status = SessionMaster.Session.PAUSED
+            self.total_ticks += int(time.time() - self.start_ticks)
+
+        def stop(self):
+            if self.get_status() == SessionMaster.Session.RUNNING:
+                self.total_ticks += int(time.time() - self.start_ticks)
+            self.status = SessionMaster.Session.STOPPED
+
+        def get_status(self):
+            return self.status
+
+        def get_total(self):
+            if self.status == SessionMaster.Session.RUNNING:
+                return self.total_ticks + (time.time() - self.start_ticks)
+            return self.total_ticks
+
+        def get_start_time(self):
+            return self.start_ticks
+
+        def get_id(self):
+            return self.id
+
+        def __repr__(self):
+            return "Session #{0}: Cat: {1}, Start: {2}, Total: {3}"\
+                .format(self.id, self.category, format_time(self.start_ticks), format_time(self.get_total()))
+
+
+if __name__ == "__main__":
+    session_master = SessionMaster()  # session_master.root_tk is root window
+    # attach deletion handler to 'client_exit' method
+    session_master.root_tk.protocol("WM_DELETE_WINDOW", session_master.client_exit)
+    session_master.root_tk.mainloop()
